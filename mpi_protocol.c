@@ -6,9 +6,9 @@ void send_job(const JobMsg *job, int dest_rank, int tag)
 
     if(tag==TAG_STOP) return;
 
-    MPI_Send((void*)&job->command, 1, MPI_INT, dest_rank, tag, MPI_COMM_WORLD);
-    MPI_Send((void*)&jpb->n, 1, MPI_LONG_LONG, dest_rank, tag, MPI_COMM_WORLD);
-    MPI_Send((void*)job->id, 32, MPI_CHAR, dest_rank, tag, MPI_COMM_WORLD);
+    MPI_Send((void*)&job->cmd, 1, MPI_INT, dest_rank, tag, MPI_COMM_WORLD);
+    MPI_Send((void*)&job->n, 1, MPI_LONG_LONG, dest_rank, tag, MPI_COMM_WORLD);
+    MPI_Send((void*)job->client_id, 32, MPI_CHAR, dest_rank, tag, MPI_COMM_WORLD);
     MPI_Send((void*)job->name, 9, MPI_CHAR, dest_rank, tag, MPI_COMM_WORLD);
 }
 
@@ -24,13 +24,39 @@ int recv_job(JobMsg* j, int source_rank, MPI_Status* out_status) {
     int src = st.MPI_SOURCE;
     int tag = st.MPI_TAG;
 
-    MPI_Recv((void*)&j->command, 1, MPI_INT, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv((void*)&j->cmd, 1, MPI_INT, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     MPI_Recv((void*)&j->n, 1, MPI_LONG_LONG, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    MPI_Recv((void*)j->id, 32, MPI_CHAR, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv((void*)j->client_id, 32, MPI_CHAR, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     MPI_Recv((void*)j->name, 9, MPI_CHAR, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-    j->id[31] = '\0';
+    j->client_id[31] = '\0';
     j->name[8] = '\0';
 
     return 1; 
+}
+
+void send_result_hdr(const ResultHeader* r, int dest_rank) {
+    MPI_Send((void*)&r->job_id, 1, MPI_INT, dest_rank, TAG_RESULT_HEADER, MPI_COMM_WORLD);
+    MPI_Send((void*)&r->cmd, 1, MPI_INT, dest_rank, TAG_RESULT_HEADER, MPI_COMM_WORLD);
+    MPI_Send((void*)&r->num_result, 1, MPI_LONG_LONG, dest_rank, TAG_RESULT_HEADER, MPI_COMM_WORLD);
+    MPI_Send((void*)&r->anagram_count, 1, MPI_INT, dest_rank, TAG_RESULT_HEADER, MPI_COMM_WORLD);
+    MPI_Send((void*)&r->str_len, 1, MPI_INT, dest_rank, TAG_RESULT_HEADER, MPI_COMM_WORLD);
+    MPI_Send((void*)r->client_id, 32, MPI_CHAR, dest_rank, TAG_RESULT_HEADER, MPI_COMM_WORLD);
+}
+
+int recv_result_hdr(ResultHeader* r, int* out_source_rank) {
+    MPI_Status st;
+
+    MPI_Recv((void*)&r->job_id, 1, MPI_INT, MPI_ANY_SOURCE, TAG_RESULT_HEADER,MPI_COMM_WORLD, &st);
+    int src = st.MPI_SOURCE;
+
+    MPI_Recv((void*)&r->cmd, 1, MPI_INT, src, TAG_RESULT_HEADER, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv((void*)&r->num_result, 1, MPI_LONG_LONG, src, TAG_RESULT_HEADER, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv((void*)&r->anagram_count, 1, MPI_INT, src, TAG_RESULT_HEADER, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv((void*)&r->str_len, 1, MPI_INT, src, TAG_RESULT_HEADER, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    MPI_Recv((void*)r->client_id, 32, MPI_CHAR, src, TAG_RESULT_HEADER, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+    r->client_id[31] = '\0';
+    if (out_source_rank) *out_source_rank = src;
+    return 1;
 }
