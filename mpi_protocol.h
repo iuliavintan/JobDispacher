@@ -32,6 +32,4 @@ typedef struct ResultHeader{
 void send_job();
 int recv_job();
 
-
-
 #endif
