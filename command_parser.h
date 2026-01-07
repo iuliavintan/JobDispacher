@@ -13,7 +13,7 @@ typedef struct Job{
     char id[32];
     Command command;
     long long n;
-    char name[8];
+    char name[9];
 }Job;
 
 typedef enum LineType{
