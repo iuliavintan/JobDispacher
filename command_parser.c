@@ -31,7 +31,7 @@ static int parse_int(const char *str, int *out){
 
     end=(char *)skip_spaces(end);
     if(*end!='\0') return 0;
-    if(v<0 || v>24*3600) return 0;
+    if(v<0 /*|| v>24*3600*/) return 0;
     *out=(int)v;
     return 1;
 }
