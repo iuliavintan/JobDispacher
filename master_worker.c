@@ -9,6 +9,37 @@
 #include"command_parser.h"
 #include"functionalities.h"
 
+
+static char* cmd_to_string(int cmd) {
+    switch (cmd) {
+        case PRIMES: return "PRIMES";
+        case PRIMEDIVISORS: return "PRIMEDIVISORS";
+        case ANAGRAMS: return "ANAGRAMS";
+        default: return "UNKNOWN";
+    }
+}
+
+static void ensure_logs_capacity(LogEntry** logs, int* cap, int job_id) {
+    if (job_id < *cap) return;
+    int new_cap = 0;
+
+    if(*cap==0){
+        new_cap=1024;
+    }else{
+        new_cap=*cap;
+    } 
+
+    while (job_id >= new_cap) new_cap *= 2;
+
+    LogEntry* nl = (LogEntry*)realloc(*logs, new_cap * sizeof(LogEntry));
+    if (!nl) { perror("realloc logs"); exit(1); }
+
+    memset(nl + *cap, 0, (new_cap - *cap) * sizeof(LogEntry));
+
+    *logs = nl;
+    *cap = new_cap;
+}
+
 static int find_free_worker(int comm_sz, int* worker_free) {
     for (int r = 1; r < comm_sz; r++) {
         if (worker_free[r]) return r;
@@ -26,13 +57,29 @@ static void write_to_client_file(const char* client_id, const char* text) {
     fclose(f);
 }
 
-static void receive_res_write(int *worker_free){
+static void receive_res_write(int *worker_free, LogEntry* logs, FILE* logf, double t0)
+{
     ResultHeader rh;
-        int src = -1;
+    int src = -1;
     recv_result_hdr(&rh, &src);
-    
+
     worker_free[src] = 1;
 
+    //log file update
+    LogEntry* le = &logs[rh.job_id];
+    le->t_finished = MPI_Wtime() - t0;
+
+    if (le->cmd == ANAGRAMS) {
+        fprintf(logf,
+            "job=%d client=%s cmd=%s arg=%s worker=%d received=%.6f dispatched=%.6f finished=%.6f\n",le->job_id, le->client_id, cmd_to_string(le->cmd), le->name, le->worker_rank,le->t_received, le->t_dispatched, le->t_finished);
+    } else {
+        fprintf(logf,
+            "job=%d client=%s cmd=%s arg=%lld worker=%d received=%.6f dispatched=%.6f finished=%.6f\n",le->job_id, le->client_id, cmd_to_string(le->cmd), le->n, le->worker_rank,le->t_received, le->t_dispatched, le->t_finished);
+    }
+    fflush(logf);
+   
+
+    // client file update
     if (rh.cmd == ANAGRAMS && rh.str_len > 0) {
         char* buf = (char*)malloc((size_t)rh.str_len + 1);
         if (!buf) return;
@@ -41,7 +88,8 @@ static void receive_res_write(int *worker_free){
         buf[rh.str_len] = '\0';
 
         char header_line[256];
-        snprintf(header_line, sizeof(header_line),"JOB %d ANAGRAMS => %d anagrams\n", rh.job_id, rh.anagram_count);
+        snprintf(header_line, sizeof(header_line),
+                 "JOB %d ANAGRAMS => %d anagrams\n", rh.job_id, rh.anagram_count);
 
         write_to_client_file(rh.client_id, header_line);
         write_to_client_file(rh.client_id, buf);
@@ -83,6 +131,18 @@ void master(const char *cmd_file, int comm_size){
         exit(EXIT_FAILURE);
     }
 
+
+    FILE* logf = fopen("dispatcher.log", "w");
+    if (logf==NULL) { 
+        perror("cant open log file"); 
+        exit(1); 
+    }
+
+    double t0 = MPI_Wtime();
+
+    LogEntry* logs = NULL;
+    int logs_cap = 0;
+
     char line[256];
     int active_jobs=0;
     int next_job_id=1;
@@ -103,7 +163,7 @@ void master(const char *cmd_file, int comm_size){
 
         int worker = find_free_worker(comm_size, worker_free);
         while(worker==-1){
-            receive_res_write(worker_free);
+            receive_res_write(worker_free, logs, logf, t0);
             active_jobs--;
             worker= find_free_worker(comm_size, worker_free);
         }
@@ -122,6 +182,26 @@ void master(const char *cmd_file, int comm_size){
             job.name[0]='\0';
         }
 
+          ensure_logs_capacity(&logs, &logs_cap, job.job_id);
+
+        LogEntry* le = &logs[job.job_id];
+        memset(le, 0, sizeof(*le));
+
+        le->job_id = job.job_id;
+        snprintf(le->client_id, sizeof(le->client_id), "%s", job.client_id);
+        le->cmd = job.cmd;
+        le->n = job.n;
+        snprintf(le->name, sizeof(le->name), "%s", job.name);
+
+        le->t_received = MPI_Wtime() - t0;
+        le->worker_rank = -1;
+       
+        le->worker_rank = worker;
+        le->t_dispatched = MPI_Wtime() - t0;
+
+
+        printf("DISPATCH job=%d client=%s cmd=%s worker=%d\n", job.job_id, job.client_id, cmd_to_string(job.cmd), worker);
+
         send_job(&job, worker, TAG_WORK);
         worker_free[worker]=0;
         active_jobs++;
@@ -130,7 +210,7 @@ void master(const char *cmd_file, int comm_size){
     fclose(fp);
 
     while(active_jobs>0){
-        receive_res_write(worker_free);
+        receive_res_write(worker_free, logs, logf, t0);
         active_jobs--;
     }
 
@@ -139,7 +219,9 @@ void master(const char *cmd_file, int comm_size){
         memset(&dummy, 0, sizeof(dummy));
         send_job(&dummy, w, TAG_STOP);
     }
-     free(worker_free);
+    fclose(logf);
+    free(logs);
+    free(worker_free);
 }
 
 void worker(void) {
