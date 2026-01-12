@@ -15,7 +15,11 @@ int main(int argc, char** argv) {
         if (argc != 2) {
             fprintf(stderr, "Usage: mpirun -np <P> %s <command_file>\n", argv[0]);
         } else {
-            master(argv[1], comm_sz);
+            if (comm_sz == 1) {
+                run_serial(argv[1]);          
+            } else {
+                master(argv[1], comm_sz);     
+            }
         }
     } else {
         worker();

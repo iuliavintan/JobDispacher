@@ -16,5 +16,5 @@ typedef struct LogEntry {
 
 void master(const char *cmd_file, int comm_size);
 void worker();
-
+void run_serial(const char* cmd_file);
 #endif
